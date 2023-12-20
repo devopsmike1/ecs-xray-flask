@@ -1,0 +1,69 @@
+extensions:
+  health_check:
+  pprof:
+    endpoint: :1888
+  zpages:
+    endpoint: :55679
+  sigv4auth:
+    region: $AWS_REGION
+    service: aps
+
+receivers:
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+        scrape_timeout: 10s
+      scrape_configs:
+      - job_name: "prometheus"
+        static_configs:
+        - targets: [ $AWS_PROMETHEUS_SCRAPING_ENDPOINT ]
+  awsecscontainermetrics:
+    collection_interval: 10s
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  awsxray:
+    endpoint: 0.0.0.0:2000
+    transport: udp
+  statsd:
+    endpoint: 0.0.0.0:8125
+    aggregation_interval: 60s
+
+processors:
+  batch/metrics:
+    timeout: 60s
+  batch/traces:
+    timeout: 1s
+    send_batch_size: 50
+
+
+exporters:
+  prometheusremotewrite:
+    endpoint: $AWS_PROMETHEUS_ENDPOINT
+    auth:
+      authenticator: sigv4auth
+  logging:
+    loglevel: info
+  awsxray:
+  awsemf:
+    namespace: ECS/AWSOTel/Application
+    log_group_name: '/aws/ecs/application/metrics'
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp,awsxray]
+      processors: [batch/traces]
+      exporters: [awsxray]
+    metrics:
+      receivers: [otlp, statsd,prometheus]
+      processors: [batch/metrics]
+      exporters: [awsemf, prometheusremotewrite, logging]
+
+  extensions: [pprof, zpages, health_check, sigv4auth]
+
+
